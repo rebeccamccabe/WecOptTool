@@ -59,6 +59,7 @@ from typing import Iterable, Callable, Any, Optional, Mapping, TypeVar, Union
 from pathlib import Path
 import warnings
 from datetime import datetime
+import functools
 
 from numpy.typing import ArrayLike
 import autograd.numpy as np
@@ -67,6 +68,7 @@ from autograd.builtins import isinstance, tuple, list, dict
 from autograd import grad, jacobian
 import xarray as xr
 from xarray import DataArray, Dataset
+import dask
 import capytaine as cpy
 from scipy.optimize import minimize, OptimizeResult, Bounds
 from scipy.linalg import block_diag, dft
@@ -1275,6 +1277,36 @@ class WEC:
         """
         return td_to_fd(td, fft, True)
 
+class HashWrapper:
+    def __init__(self, x) -> None:
+        self.value = x 
+        with dask.config.set({"tokenize.ensure-deterministic":True}):
+            self.h = dask.base.tokenize(x)
+    def __hash__(self) -> int:
+        return hash(self.h)
+    def __eq__(self, __value: object) -> bool:
+        return __value.h == self.h
+
+def hashable_cache(function):
+    @functools.cache
+    def cached_wrapper(*args, **kwargs):
+        arg_values = [a.value for a in args]
+        kwargs_values = {
+            k: v.value for k,v in kwargs.items()
+        }
+        return function(*arg_values, **kwargs_values)
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        shell_args = [HashWrapper(a) for a in args]
+        shell_kwargs = {
+            k: HashWrapper(v) for k,v in kwargs.items()
+        }
+        return cached_wrapper(*shell_args, **shell_kwargs)
+    
+    wrapper.cache_info = cached_wrapper.cache_info
+    wrapper.cache_clear = cached_wrapper.cache_clear
+    
+    return wrapper
 
 def ncomponents(
     nfreq : int,
@@ -2207,7 +2239,7 @@ def add_linear_friction(
             
     return hydro_data
 
-
+@hashable_cache
 def wave_excitation(exc_coeff: DataArray, waves: Dataset) -> ndarray:
     """Calculate the complex, frequency-domain, excitation force due to
     waves.
