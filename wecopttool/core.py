@@ -532,7 +532,7 @@ class WEC:
         ------
         ValueError
             If :python:`impedance` does not have the correct size:
-            :python:`(ndof, ndof, nfreq)`.
+            :python:`(nfreq, ndof, ndof)`.
         """
         f1, nfreq = frequency_parameters(freqs, False)
 
